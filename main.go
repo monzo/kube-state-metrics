@@ -36,6 +36,7 @@ import (
 
 	clientset "k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 	"k8s.io/kube-state-metrics/internal/store"
@@ -132,11 +133,12 @@ func main() {
 
 	proc.StartReaper()
 
-	kubeClient, err := createKubeClient(opts.Apiserver, opts.Kubeconfig)
+	kubeClient, kubeCfg, err := createKubeClient(opts.Apiserver, opts.Kubeconfig)
 	if err != nil {
 		klog.Fatalf("Failed to create client: %v", err)
 	}
 	storeBuilder.WithKubeClient(kubeClient)
+	storeBuilder.WithKubeCfg(kubeCfg)
 
 	ksmMetricsRegistry := prometheus.NewRegistry()
 	ksmMetricsRegistry.Register(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
@@ -148,10 +150,10 @@ func main() {
 	serveMetrics(stores, opts.Host, opts.Port, opts.EnableGZIPEncoding)
 }
 
-func createKubeClient(apiserver string, kubeconfig string) (clientset.Interface, error) {
+func createKubeClient(apiserver string, kubeconfig string) (clientset.Interface, *rest.Config, error) {
 	config, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	config.UserAgent = version.GetVersion().String()
@@ -160,7 +162,7 @@ func createKubeClient(apiserver string, kubeconfig string) (clientset.Interface,
 
 	kubeClient, err := clientset.NewForConfig(config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Informers don't seem to do a good job logging error messages when it
@@ -169,13 +171,13 @@ func createKubeClient(apiserver string, kubeconfig string) (clientset.Interface,
 	klog.Infof("Testing communication with server")
 	v, err := kubeClient.Discovery().ServerVersion()
 	if err != nil {
-		return nil, errors.Wrap(err, "ERROR communicating with apiserver")
+		return nil, nil, errors.Wrap(err, "ERROR communicating with apiserver")
 	}
 	klog.Infof("Running with Kubernetes cluster version: v%s.%s. git version: %s. git tree state: %s. commit: %s. platform: %s",
 		v.Major, v.Minor, v.GitVersion, v.GitTreeState, v.GitCommit, v.Platform)
 	klog.Infof("Communication with server successful")
 
-	return kubeClient, nil
+	return kubeClient, config, nil
 }
 
 func telemetryServer(registry prometheus.Gatherer, host string, port int) {

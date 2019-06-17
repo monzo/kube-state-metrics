@@ -49,5 +49,6 @@ var (
 		"services":                   struct{}{},
 		"statefulsets":               struct{}{},
 		"storageclasses":             struct{}{},
+		"verticalpodautoscalers":     struct{}{},
 	}
 )
